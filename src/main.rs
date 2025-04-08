@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use std::net::{TcpListener, TcpStream};
-use std::io::{Read, Write, BufReader};
+use std::io::{BufReader, Read, Write};
 // Removed the unnecessary anyhow::Ok import.
 
 // use anyhow::Ok;
@@ -14,7 +14,7 @@ fn main() {
     for stream in listener.incoming() {
          match stream {
              Ok(_stream) => {
-                 handle_request(_stream);
+                let _ = handle_request(_stream);
              }
              Err(e) => {
                  println!("error: {}", e);
@@ -48,7 +48,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
         let _http_version = split_request[2];
 
         let response = match path {
-            " HTTP" =>  "HTTP/1.1 200 OK\r\n\r\n",
+            "/" =>  "HTTP/1.1 200 OK\r\n\r\n",
             _ => "HTTP/1.1 404 Not Found\r\n\r\n"
         };
 
