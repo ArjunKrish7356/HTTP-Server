@@ -43,9 +43,9 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
     let split_request: Vec<&str> = request.trim().split_whitespace().collect();
     
     if split_request.len() >= 3 {
-        let method = split_request[0];
+        let _method = split_request[0];
         let path = split_request[1];
-        let http_version = split_request[2];
+        let _http_version = split_request[2];
 
         let response = match path {
             " HTTP" =>  "HTTP/1.1 200 OK\r\n\r\n",
