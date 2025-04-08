@@ -179,3 +179,160 @@ This is perfectly fine for the initial stages! As you build more complex servers
 3.  **(Optional) Introduce `BufReader`:** Wrap the `TcpStream` in `handle_request` with a `BufReader` and read using it.
 
 Keep up the great work! Building network services is challenging but very rewarding. Feel free to ask if any of these points are unclear. Happy coding!
+
+---
+
+## ✨ Review Update (Based on recent changes)
+
+Awesome job applying the feedback! It's great to see you've implemented several of the suggestions.
+
+### 👍 Improvements Made
+
+*   **Using `expect()`:** You've replaced `unwrap()` with `expect()` (lines 9, 10, 24, 28, 42). This is a good step up, as it provides context if the program *does* panic, making debugging easier than with `unwrap()`. While `expect` still panics on `Err`, it's often acceptable during initial development or when an error is truly unrecoverable for the program's logic.
+*   **Correct Bytes Read Handling:** You're now correctly capturing the return value of `reader.read()` into `bytes_read` (line 28) and checking `if bytes_read == 0` (line 29). Perfect! This correctly handles cases where the client might disconnect immediately.
+*   **Using `BufReader`:** You've successfully wrapped the `TcpStream` with a `BufReader` (line 25), which will help with I/O efficiency as you start reading more data.
+
+### 💡 Next Set of Learning Opportunities
+
+Now that you have basic request reading and response writing, let's refine the request handling:
+
+#### 1. Refining Error Handling: `expect` vs. `match` / `?`
+
+**Observation:**
+You're using `expect()` extensively now.
+
+**Explanation:**
+As mentioned, `expect()` is better than `unwrap()`, but it still causes a panic if an error occurs. For a server that should ideally stay running even if one connection has an issue, panicking might not be the desired behavior. For instance, if `stream.write_all()` fails (maybe the client disconnected after sending the request but before receiving the response), the `expect()` on line 42 would crash the *entire server*, preventing it from handling other connections.
+
+**Suggestion:**
+Consider where a panic is acceptable and where it isn't.
+*   Binding the listener (line 9): Panicking here might be okay. If the server can't even start listening, there's not much else it can do.
+*   Reading/Writing within `handle_request` (lines 28, 42): Panicking here is generally undesirable. An error with one client shouldn't stop the server for everyone else. Here, using `match` (like you still do for `listener.incoming()`) or the `?` operator within functions that return a `Result` is more robust. You could modify `handle_request` to return `Result<(), std::io::Error>` and then use `?` inside it.
+
+**Example (Using `match` in `handle_request`):**
+
+```rust
+// Inside handle_request
+
+let bytes_read = match reader.read(&mut buf) {
+    Ok(0) => { // Client disconnected
+        println!("Client disconnected.");
+        return;
+    }
+    Ok(n) => n, // Got some bytes
+    Err(e) => {
+        eprintln!("Failed to read from stream: {}", e);
+        return; // Don't panic, just stop handling this request
+    }
+};
+
+// ... process request ...
+
+let response = /* ... */;
+
+if let Err(e) = stream.write_all(response.as_bytes()) {
+    eprintln!("Failed to write response: {}", e);
+    // Don't panic, just log the error. The function will end anyway.
+}
+```
+
+**Why?** This makes your server more resilient. It can continue serving other clients even if one connection encounters an I/O error.
+
+**Resource:** [The Rust Book: Recoverable Errors with Result](https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html)
+
+#### 2. Robust HTTP Request Parsing
+
+**Observation:**
+You're parsing the request path by converting the buffer to a string, splitting by `/`, and taking the second element (lines 33-35).
+
+**Explanation:**
+This approach is quite fragile and makes several assumptions:
+*   **UTF-8:** `String::from_utf8_lossy` is used. While common, HTTP headers are technically ASCII (a subset of UTF-8), but the body *could* be binary. For parsing the request line and headers, sticking to byte operations or ASCII-aware parsing is often safer. `from_utf8_lossy` replaces invalid sequences, which might hide issues or corrupt data unexpectedly.
+*   **Splitting by `/`:** This assumes the *only* `/` is the one separating the method/path/protocol. A request like `GET /foo/bar HTTP/1.1` would be split into `["GET ", "foo", "bar HTTP", "1.1\r\n..."]`, and `split_request[1]` would be `"foo"`, losing the rest of the path. It also assumes the request line format is always like `METHOD /path PROTOCOL`.
+*   **Indexing `[1]`:** This will panic if the request doesn't contain a `/` (e.g., an invalid request), as `split_request` would have only one element.
+*   **Path Content:** The extracted `path` (line 35) currently contains everything *after* the first `/` up to the next `/` or the end of the string. For a request `GET / HTTP/1.1`, `path` becomes `" HTTP"`. For `GET /echo/hello HTTP/1.1`, it becomes `"echo"`. This isn't the full request path.
+
+**Suggestion:**
+Parse the request line more carefully. The request line typically looks like `METHOD /path HTTP/version\r\n`. You need to:
+1.  Read the first line (using `BufReader::read_line` is good for this).
+2.  Split the line by spaces.
+3.  Expect three parts: Method (e.g., "GET"), Path (e.g., "/"), and Protocol (e.g., "HTTP/1.1").
+4.  Handle potential errors (e.g., line not having 3 parts).
+
+**Example (Basic Request Line Parsing):**
+
+```rust
+use std::io::{BufRead, BufReader, Write}; // Add BufRead
+
+// Inside handle_request, after creating reader
+
+let mut request_line = String::new();
+match reader.read_line(&mut request_line) {
+    Ok(0) => {
+        println!("Client disconnected before sending request line.");
+        return;
+    }
+    Ok(_) => {
+        // Successfully read the line, now parse it
+        let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
+        if parts.len() == 3 {
+            let method = parts[0];
+            let path = parts[1];
+            let http_version = parts[2];
+
+            println!("Method: {}, Path: {}, Version: {}", method, http_version, path); // Corrected order
+
+            // Now, use the extracted 'path' for routing
+            let response = match path {
+                "/" => "HTTP/1.1 200 OK\r\n\r\n",
+                // Add more paths here later
+                _ => "HTTP/1.1 404 Not Found\r\n\r\n",
+            };
+
+            if let Err(e) = stream.write_all(response.as_bytes()) {
+                eprintln!("Failed to write response: {}", e);
+            }
+
+        } else {
+            eprintln!("Malformed request line: {}", request_line.trim());
+            // Consider sending a 400 Bad Request response
+            let response = "HTTP/1.1 400 Bad Request\r\n\r\n";
+             if let Err(e) = stream.write_all(response.as_bytes()) {
+                eprintln!("Failed to write bad request response: {}", e);
+            }
+        }
+    }
+    Err(e) => {
+        eprintln!("Failed to read request line: {}", e);
+        return;
+    }
+}
+
+// Remove the old parsing logic (lines 28-42 in your updated code)
+// The response writing is now inside the parsing logic
+```
+
+**Why?** Robust parsing handles variations and errors gracefully, preventing unexpected crashes and correctly interpreting the client's request according to HTTP standards.
+
+**Resource:** [HTTP/1.1 Request Message Specification (RFC 7230)](https://tools.ietf.org/html/rfc7230#section-3)
+
+#### 3. Unused Variables
+
+**Observation:**
+The `addr` variables assigned on lines 10 and 24 are not used later in the code.
+
+**Explanation:**
+The Rust compiler helpfully warns about unused variables because they might indicate a mistake or unnecessary computation.
+
+**Suggestion:**
+If you don't need the local address, you can remove those lines (10 and 24). If you *might* use them later (e.g., for logging), you can prefix the variable name with an underscore (`let _addr = ...;`) to tell the compiler you intentionally aren't using it *yet*.
+
+**Why?** Keeping code clean and removing unused elements makes it easier to read and maintain.
+
+## 🚀 Next Steps & Challenges
+
+1.  **Refine Error Handling:** Decide where panics (`expect`) are acceptable and where recoverable errors (`match` or `?`) are needed, especially for I/O within `handle_request`.
+2.  **Implement Robust Request Line Parsing:** Replace the current `split('/')` logic with parsing based on `read_line()` and splitting by whitespace to correctly extract the method, path, and HTTP version.
+3.  **Clean Up Unused Variables:** Remove or mark the unused `addr` variables.
+
+You're making excellent progress! Parsing protocols like HTTP piece by piece is a fantastic learning exercise. Keep it up!
