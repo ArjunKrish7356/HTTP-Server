@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use std::net::{TcpListener, TcpStream};
-use std::io::{Error as E, Read, Write};
+use std::io::{Error as E, Read, Write, BufReader};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -8,7 +8,7 @@ fn main() {
 
     // Uncomment this block to pass the first stage
     //
-    let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:4221").expect("Failed to bind to the addr");
     //
     for stream in listener.incoming() {
          match stream {
@@ -23,13 +23,14 @@ fn main() {
 }
 
 fn handle_request(mut stream: TcpStream){
+    let mut reader = BufReader::new(&stream);
     let mut buf: [u8; 1024] = [0; 1024];
 
-    let _ = stream.read(&mut buf);
-    if buf.len() == 0{
+    let bytes_read = reader.read(&mut buf).expect("Failed to read data from the input buffer");
+    if bytes_read == 0{
         return;
     }
     let response = "HTTP/1.1 200 OK\r\n\r\n";
 
-    let _ = stream.write_all(response.as_bytes());
+    let _ = stream.write_all(response.as_bytes()).expect("Failed to write to the buffer");
 }
