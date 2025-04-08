@@ -42,7 +42,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
     let request = String::from_utf8_lossy(&buf[..bytes_read]);
     let split_request: Vec<&str> = request.trim().split_whitespace().collect();
     
-    if split_request.len() == 3 {
+    if split_request.len() >= 3 {
         let method = split_request[0];
         let path = split_request[1];
         let http_version = split_request[2];
