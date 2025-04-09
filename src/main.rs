@@ -54,8 +54,9 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
         };
 
         if path.starts_with("/echo/") {
-            let prefix = path.strip_prefix("/echo").expect("Error while fecthing contents after echo");
+            let prefix = path.strip_prefix("/echo/").expect("Error while fecthing contents after echo");
             response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",prefix.len(),prefix);
+            println!("{}",response);
         }
 
         if let Err(e) = stream.write_all(response.as_bytes()) {
