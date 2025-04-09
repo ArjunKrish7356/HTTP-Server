@@ -46,11 +46,17 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
         let _method = split_request[0];
         let path = split_request[1];
         let _http_version = split_request[2];
+        println!("{} , {} , {}",_method, path, _http_version);
 
-        let response = match path {
-            "/" =>  "HTTP/1.1 200 OK\r\n\r\n",
-            _ => "HTTP/1.1 404 Not Found\r\n\r\n"
+        let mut response = match path {
+            "/" =>  "HTTP/1.1 200 OK\r\n\r\n".to_string(),
+            _ => "HTTP/1.1 404 Not Found\r\n\r\n".to_string()
         };
+
+        if path.starts_with("/echo/") {
+            let prefix = path.strip_prefix("/echo").expect("Error while fecthing contents after echo");
+            response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",prefix.len(),prefix);
+        }
 
         if let Err(e) = stream.write_all(response.as_bytes()) {
             eprintln!("Failed to write response: {}", e);
