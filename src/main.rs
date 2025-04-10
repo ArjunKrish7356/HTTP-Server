@@ -44,7 +44,8 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
     };
 
     let request = String::from_utf8_lossy(&buf[..bytes_read]);
-    let split_request: Vec<&str> = request.trim().split_whitespace().collect();
+    let mut split_request: Vec<&str> = request.trim().split_whitespace().collect();
+    println!("{:#?}",split_request);
     
     if split_request.len() >= 3 {
         let _method = split_request[0];
@@ -54,7 +55,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
 
         let mut response = match path {
             "/" =>  OK_RESPONSE.to_string(),
-            _ => NOT_FOUND_RESPONSE.to_string()
+            _ => NOT_FOUND_RESPONSE.to_string(),
         };
 
         if path.starts_with("/echo/") {
@@ -62,7 +63,11 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
             response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",prefix.len(),prefix);
             println!("{}",response);
         }
-
+        else if path == "/user-agent" {
+            let body = split_request.pop().unwrap_or("");
+            response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",body.len(),body);
+        }
+        println!("{}",response);
         if let Err(e) = stream.write_all(response.as_bytes()) {
             eprintln!("Failed to write response: {}", e);
         }
