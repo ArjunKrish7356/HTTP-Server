@@ -1,11 +1,35 @@
 #[allow(unused_imports)]
 use std::net::{TcpListener, TcpStream};
-use std::io::{BufReader, Read, Write};
+use std::{collections::HashMap, io::{BufReader, Read, Write}};
 
 const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
 const NOT_FOUND_RESPONSE: &str = "HTTP/1.1 404 Not Found\r\n\r\n";
 const BAD_REQUEST_RESPONSE: &str = "HTTP/1.1 400 Bad Request\r\n\r\n";
 const BIND_ADDRESS: &str = "127.0.0.1:4221";
+
+fn extract_headers(request: &str) -> HashMap<String,String> {
+    let mut headers = HashMap::new();
+    let mut splitted_request = request.split("\r\n");
+
+    if let Some(status) = splitted_request.next() {
+        let splitted_status: Vec<&str> = status.split(" ").collect();
+        headers.insert("Type".to_string(), splitted_status[0].to_string());
+        headers.insert("Route".to_string(), splitted_status[1].to_string());
+        headers.insert("Version".to_string(), splitted_status[2].to_string());
+
+    }
+
+    for split in splitted_request {
+        let header_splitted: Vec<&str> = split.split(":").collect();
+        if header_splitted.len() >= 2 {
+            headers.insert(
+                header_splitted[0].trim().to_string(),
+                header_splitted[1].trim().to_string(),
+            );
+        }
+    }
+    headers
+}
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -44,38 +68,32 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
     };
 
     let request = String::from_utf8_lossy(&buf[..bytes_read]);
-    let mut split_request: Vec<&str> = request.trim().split_whitespace().collect();
-    println!("{:#?}",split_request);
-    
-    if split_request.len() >= 3 {
-        let _method = split_request[0];
-        let path = split_request[1];
-        let _http_version = split_request[2];
-        println!("{} , {} , {}",_method, path, _http_version);
+    let header = extract_headers(&request);
+    let mut response = String::new();
 
-        let mut response = match path {
-            "/" =>  OK_RESPONSE.to_string(),
-            _ => NOT_FOUND_RESPONSE.to_string(),
-        };
+    if let (Some(type_value), Some(route_value)) = (header.get("Type"),header.get("Route")) {
+        if type_value == "GET" && route_value == "/" {
+            response = OK_RESPONSE.to_string();
+        }
+        else if type_value == "GET" && route_value.starts_with("/echo/"){
+            let splitted: Vec<&str> = route_value.split("/").collect();
+            let param = splitted[2];
+            let length = param.len();
+            response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", length, param);
+        }
+        else if type_value == "GET" && route_value.starts_with("/user-agent") {
+            if let Some(user_agent) = header.get("User-Agent") {
+                response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", user_agent.len(), user_agent);
+            }
+        }
+        else {
+            response = NOT_FOUND_RESPONSE.to_string();
+        }
+    }
+    println!("{}",response);
 
-        if path.starts_with("/echo/") {
-            let prefix = path.strip_prefix("/echo/").unwrap_or("");
-            response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",prefix.len(),prefix);
-            println!("{}",response);
-        }
-        else if path == "/user-agent" {
-            let body = split_request.pop().unwrap_or("");
-            response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",body.len(),body);
-        }
-        println!("{}",response);
-        if let Err(e) = stream.write_all(response.as_bytes()) {
+    if let Err(e) = stream.write_all(response.as_bytes()) {
             eprintln!("Failed to write response: {}", e);
-        }
-        } else {
-        eprintln!("Malformed request line: {}", request.trim());
-        // Consider sending a 400 Bad Request response
-        let response = BAD_REQUEST_RESPONSE;
-        stream.write_all(response.as_bytes())?;       
     }
 
     Ok(())
