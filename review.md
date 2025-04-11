@@ -1,187 +1,183 @@
-# Code Review: src/main.rs
+# Code Review for src/main.rs
 
-Hi there! Thanks for sharing your code. You've built a functional basic HTTP server in Rust, which is a great achievement! It correctly binds to a port, listens for connections, and handles basic GET requests for the root and `/echo/` paths. This review focuses on building upon that foundation with some common Rust practices, particularly around error handling and clarity.
+Hey there!
 
-## 👍 Positive Observations
+Great job getting a basic HTTP server up and running in Rust! You've successfully set up a `TcpListener`, accepted incoming connections in a loop, and started parsing HTTP requests. Separating concerns into `handle_request` and `extract_headers` is a good step towards maintainable code.
 
-*   **Working Server:** You've successfully implemented the core logic for a TCP server that accepts connections and responds to simple HTTP requests. Great job!
-*   **Clear Basic Structure:** The separation of concerns between the main loop (`main`) and the request handling logic (`handle_request`) is good practice.
-*   **Use of `BufReader`:** Using `BufReader` (line 27) is efficient for reading from network streams.
-*   **Handling Disconnects:** You correctly check for `Ok(0)` from `read` (line 31) to detect client disconnections.
-*   **Basic Routing:** The `match` statement (line 51) and `if` condition (line 56) provide a simple routing mechanism.
+Here are a few suggestions to help you enhance your server, focusing on robustness, clarity, and Rust best practices:
 
-## 💡 Learning Opportunities
+## 1. Robust Request Parsing (`extract_headers`)
 
-Here are a few areas where we can refine the code for robustness and clarity:
+**Observation:** The `extract_headers` function currently relies heavily on specific indexing (`splitted_status[0]`, `splitted_status[1]`, `splitted_status[2]`, `splitted[2]`) after splitting strings. If an incoming request doesn't perfectly match the expected format (e.g., missing parts, extra spaces), this could lead to a panic due to accessing an index out of bounds.
 
-### 1. Learning Objective: Robust Error Handling
+**Suggestion:** Use pattern matching or methods like `get()` on the resulting `Vec<&str>` to handle cases where parts of the request line or headers might be missing or malformed. This makes the parsing more resilient.
 
-Error handling is crucial in network programming. Rust's `Result` type is powerful, but it's important to handle errors gracefully without crashing the server.
+**Why:** Relying on fixed indices makes the code brittle. Real-world HTTP requests can vary. Gracefully handling malformed requests prevents your server from crashing unexpectedly.
 
-*   **`expect` in `main`:**
-    *   **Observation:** On line 12, `TcpListener::bind(...).expect(...)` is used. If the address `127.0.0.1:4221` is already in use or the program lacks permissions, `bind` will return an `Err`, and `expect` will cause the *entire program to panic and crash*.
-    *   **Suggestion:** For errors that are recoverable or expected (like a port being busy), it's generally better to handle the `Result` explicitly using `match` or propagate it. In `main`, handling it often means logging the error and exiting gracefully.
-    *   **Example (Handling):**
-        ```rust
-        // Before (in main)
-        // let listener = TcpListener::bind("127.0.0.1:4221").expect("Failed to bind to the addr");
+**Example (Conceptual):**
 
-        // After (in main)
-        let listener = match TcpListener::bind("127.0.0.1:4221") {
-            Ok(listener) => {
-                println!("Server listening on 127.0.0.1:4221");
-                listener
-            }
-            Err(e) => {
-                eprintln!("Failed to bind to address 127.0.0.1:4221: {}", e);
-                // Exit the program gracefully if we can't bind
-                std::process::exit(1);
-            }
-        };
-        ```
-    *   **Resource:** [Error Handling in Rust](https://doc.rust-lang.org/book/ch09-00-error-handling.html)
+```rust
+// Inside extract_headers, for the status line:
+if let Some(status) = splitted_request.next() {
+    let parts: Vec<&str> = status.splitn(3, ' ').collect(); // Split into max 3 parts
+    if parts.len() == 3 {
+        headers.insert("Type".to_string(), parts[0].to_string());
+        headers.insert("Route".to_string(), parts[1].to_string());
+        headers.insert("Version".to_string(), parts[2].to_string());
+    } else {
+        // Handle malformed status line, maybe return an error or default values
+        eprintln!("Malformed status line: {}", status);
+        // Consider returning a Result<HashMap<...>, ParseError> from this function
+    }
+}
 
-*   **Ignoring `Result` from `handle_request`:**
-    *   **Observation:** In the `main` loop (line 17), `let _ = handle_request(_stream);` ignores the `Result<(), std::io::Error>` returned by `handle_request`. If `handle_request` encounters an I/O error and returns `Err`, the main loop doesn't know about it and continues as if nothing happened.
-    *   **Suggestion:** Check the result. At a minimum, log the error if one occurs.
-    *   **Example (Handling in `main` loop):**
-        ```rust
-        // Before
-        // let _ = handle_request(_stream);
+// Inside extract_headers, for headers:
+for split in splitted_request {
+    // Use splitn to handle potential colons in the value
+    if let Some((key, value)) = split.split_once(':') {
+         headers.insert(
+             key.trim().to_string(),
+             value.trim().to_string(), // Trim whitespace
+         );
+    } else if !split.is_empty() { // Ignore empty lines but log others
+        eprintln!("Malformed header line: {}", split);
+    }
+}
+```
 
-        // After
-        if let Err(e) = handle_request(stream) { // Renamed _stream to stream
-            eprintln!("Error handling connection: {}", e);
+**Learning Resource:**
+
+*   Error Handling in Rust: [https://doc.rust-lang.org/book/ch09-00-error-handling.html](https://doc.rust-lang.org/book/ch09-00-error-handling.html)
+*   `Option` and `Result`: [https://doc.rust-lang.org/std/option/enum.Option.html](https://doc.rust-lang.org/std/option/enum.Option.html), [https://doc.rust-lang.org/std/result/enum.Result.html](https://doc.rust-lang.org/std/result/enum.Result.html)
+*   String `splitn` and `split_once`: [https://doc.rust-lang.org/std/primitive.str.html#method.splitn](https://doc.rust-lang.org/std/primitive.str.html#method.splitn), [https://doc.rust-lang.org/std/primitive.str.html#method.split_once](https://doc.rust-lang.org/std/primitive.str.html#method.split_once)
+
+## 2. Error Handling with `expect`
+
+**Observation:** You're using `expect("Failed to bind to the addr")` when binding the `TcpListener`.
+
+**Suggestion:** While `expect` is convenient, in a server application, it's often better to handle potential errors more gracefully, perhaps by logging the error and exiting cleanly, or by returning a `Result` from `main`. Using `?` requires `main` to return a `Result`.
+
+**Why:** `expect` causes an immediate panic if the operation fails. While okay for simple examples or situations where failure is truly unrecoverable *and* you want to crash, more robust applications often need finer control over error reporting and shutdown.
+
+**Example:**
+
+```rust
+use std::net::TcpListener;
+use std::process; // For exit
+
+fn main() -> std::io::Result<()> { // Change main to return a Result
+    println!("Logs from your program will appear here!");
+
+    let listener = match TcpListener::bind(BIND_ADDRESS) {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Failed to bind to address {}: {}", BIND_ADDRESS, e);
+            // Or using std::process::exit
+            // process::exit(1);
+            return Err(e); // Propagate the error
         }
-        ```
+    };
 
-*   **Returning `Ok(())` on Error in `handle_request`:**
-    *   **Observation:** Inside `handle_request`, if `reader.read` fails (line 36) or `stream.write_all` fails (lines 62, 69), the function currently prints an error but then returns `Ok(())`. This signals to the caller (`main`) that everything succeeded, even though an error occurred.
-    *   **Suggestion:** Propagate the error by returning the `Err` variant. Rust's `?` operator is excellent for this. It tries to unwrap the `Ok` value, and if it finds an `Err`, it immediately returns that `Err` from the current function. (Note: To use `?`, the function's return type must be compatible, which `Result<(), std::io::Error>` is).
-    *   **Example (Using `?` in `handle_request`):**
-        ```rust
-        // Before (read error handling)
-        // let bytes_read = match reader.read(&mut buf){
-        //     Ok(0) => { /* ... */ return Ok(()); },
-        //     Ok(n) => n,
-        //     Err(e) => {
-        //         eprintln!("Failed to read from stream: {}", e);
-        //         return Ok(()); // Hides the error
-        //     }
-        // };
+    // ... rest of the main loop ...
 
-        // After (read error handling using ?)
-        let bytes_read = match reader.read(&mut buf) {
-            Ok(0) => {
-                println!("Client Disconnected");
-                return Ok(()); // Still return Ok for clean disconnect
-            }
-            Ok(n) => n,
-            Err(e) => {
-                // Let the error propagate
-                eprintln!("Failed to read from stream: {}", e);
-                return Err(e); // Propagate the actual error
-                // Or, if you want to use ?, you might refactor slightly
-            }
-        };
+    Ok(()) // Indicate success
+}
 
-        // Before (write error handling)
-        // if let Err(e) = stream.write_all(response.as_bytes()) {
-        //     eprintln!("Failed to write response: {}", e);
-        // }
-        // // ... continues and returns Ok(()) implicitly or explicitly
+// Or using the ? operator if main returns Result:
+// fn main() -> std::io::Result<()> {
+//     let listener = TcpListener::bind(BIND_ADDRESS)?; // Propagates error if bind fails
+//     // ...
+//     Ok(())
+// }
 
-        // After (write error handling using ?)
-        stream.write_all(response.as_bytes())?; // Returns Err(e) if write_all fails
-        // ... function continues only if write_all succeeded
-        // The final Ok(()) at the end of the function handles the success case.
-        ```
-    *   **Resource:** [The `?` operator for cleaner error handling](https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html#a-shortcut-for-propagating-errors-the--operator)
+```
 
-*   **`expect` in `handle_request`:**
-    *   **Observation:** Line 57 uses `expect` on `strip_prefix`. While the `if path.starts_with("/echo/")` check makes a panic unlikely here, using `expect` still introduces a potential panic point if the logic were ever changed.
-    *   **Suggestion:** Use `unwrap_or` or pattern matching for safer unwrapping when a default or alternative path makes sense. In this specific case, since you've already checked `starts_with`, `unwrap` *might* be considered acceptable, but getting used to avoiding `expect` is good practice. A slightly safer way is `strip_prefix(...).unwrap_or("")` if an empty string makes sense as a default, or handle the `None` case explicitly if the logic requires it.
-    *   **Example (Safer alternative):**
-        ```rust
-        // Before
-        // let prefix = path.strip_prefix("/echo/").expect("Error while fecthing contents after echo");
+**Learning Resource:**
 
-        // After (assuming empty string is okay if prefix somehow fails, though unlikely here)
-        let prefix = path.strip_prefix("/echo/").unwrap_or(""); // Provide a default
+*   Propagating Errors (`?` operator): [https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html#a-shortcut-for-propagating-errors-the--operator](https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html#a-shortcut-for-propagating-errors-the--operator)
 
-        // Or, more robustly (though maybe overkill here given the `if`):
-        if let Some(prefix) = path.strip_prefix("/echo/") {
-             response = format!(/* ... */, prefix.len(), prefix);
-        } else {
-             // This case shouldn't happen because of the outer `if`,
-             // but demonstrates handling the None case.
-             eprintln!("Error: Path started with /echo/ but strip_prefix failed.");
-             // Maybe return a 500 Internal Server Error response here?
-             response = "HTTP/1.1 500 Internal Server Error\r\n\r\n".to_string();
-        }
-        ```
+## 3. Routing Logic Clarity
 
-### 2. Learning Objective: Clear Intent with Variables
+**Observation:** The routing logic in `handle_request` uses a series of `if/else if` statements based on string comparisons.
 
-*   **Underscore Prefixes:**
-    *   **Observation:** Variables like `_stream` (line 16), `_method` (line 46), and `_http_version` (line 48) start with an underscore. In Rust, this convention signals to the compiler and other readers that the variable is *intentionally* unused, suppressing "unused variable" warnings.
-    *   **Suggestion:**
-        *   If a variable *is* used (like `_stream` being passed to `handle_request`), remove the underscore (`stream`).
-        *   If a variable is truly unused (you parse it but don't need its value), keep the underscore or use just `_` if you don't need to refer to it at all. For the parsed request line, if you only need `path`, you could destructure like this: `let [_, path, ..] = split_request;` (though this requires knowing the length). Or simply keep `_method` and `_http_version` if you plan to use them later.
-    *   **Example:**
-        ```rust
-        // In main loop:
-        // Ok(_stream) => { let _ = handle_request(_stream); }
-        // becomes:
-        Ok(stream) => { // Renamed
-            if let Err(e) = handle_request(stream) { // Use the renamed variable
-                eprintln!("Error handling connection: {}", e);
+**Suggestion:** As the number of routes grows, consider using a `match` statement on the tuple `(type_value, route_value)` or even exploring routing libraries (like `matchit` or `rouille` for simple cases, or web frameworks like `Actix`, `Axum`, `Rocket` for more complex applications) later on. For now, a `match` statement can improve readability.
+
+**Why:** `match` statements can often express complex conditional logic more clearly than nested `if/else if`, especially when dealing with multiple variables or patterns.
+
+**Example:**
+
+```rust
+fn handle_request(mut stream: TcpStream) -> Result<(), std::io::Error> {
+    // ... reading request and extracting headers ...
+    let request_str = String::from_utf8_lossy(&buf[..bytes_read]);
+    let headers = extract_headers(&request_str); // Assuming extract_headers is robust
+
+    let response = match (headers.get("Type").map(|s| s.as_str()), headers.get("Route").map(|s| s.as_str())) {
+        (Some("GET"), Some("/")) => OK_RESPONSE.to_string(),
+        (Some("GET"), Some(route)) if route.starts_with("/echo/") => {
+            // Using strip_prefix for cleaner path extraction
+            if let Some(param) = route.strip_prefix("/echo/") {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    param.len(),
+                    param
+                )
+            } else {
+                // Should ideally not happen if starts_with passed, but good practice
+                BAD_REQUEST_RESPONSE.to_string()
             }
         }
+        (Some("GET"), Some("/user-agent")) => {
+            if let Some(user_agent) = headers.get("User-Agent") {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    user_agent.len(),
+                    user_agent
+                )
+            } else {
+                // Maybe return a different error if User-Agent header is expected but missing?
+                BAD_REQUEST_RESPONSE.to_string()
+            }
+        }
+        _ => NOT_FOUND_RESPONSE.to_string(), // Default case for any other method/route
+    };
 
-        // In handle_request:
-        // let _method = split_request[0];
-        // let path = split_request[1];
-        // let _http_version = split_request[2];
-        // If method and version are unused:
-        let path = split_request[1]; // Only bind the variable you need
-        // Or keep underscores if you might use them later:
-        // let _method = split_request[0];
-        // let path = split_request[1];
-        // let _http_version = split_request[2];
-        ```
+    // ... writing response ...
+    Ok(())
+}
+```
 
-### 3. Learning Objective: Code Readability
+**Learning Resource:**
 
-*   **Magic Strings:**
-    *   **Observation:** Strings like `"HTTP/1.1 200 OK\r\n\r\n"`, `"HTTP/1.1 404 Not Found\r\n\r\n"`, `"127.0.0.1:4221"` are used directly in the code.
-    *   **Suggestion:** Define constants for these. This improves readability and makes it easier to change them later if needed.
-    *   **Example:**
-        ```rust
-        const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
-        const NOT_FOUND_RESPONSE: &str = "HTTP/1.1 404 Not Found\r\n\r\n";
-        const BAD_REQUEST_RESPONSE: &str = "HTTP/1.1 400 Bad Request\r\n\r\n";
-        const BIND_ADDRESS: &str = "127.0.0.1:4221";
+*   `match` Control Flow: [https://doc.rust-lang.org/book/ch06-02-match.html](https://doc.rust-lang.org/book/ch06-02-match.html)
+*   Pattern Syntax: [https://doc.rust-lang.org/book/ch18-03-pattern-syntax.html](https://doc.rust-lang.org/book/ch18-03-pattern-syntax.html)
 
-        // ... later in code
-        let listener = TcpListener::bind(BIND_ADDRESS) // ...
-        // ...
-        let mut response = match path {
-            "/" => OK_RESPONSE.to_string(),
-            _ => NOT_FOUND_RESPONSE.to_string(),
-        };
-        // ...
-        let response = BAD_REQUEST_RESPONSE;
-        ```
+## 4. Handling Request Body (Potential Future Step)
 
-*   **Commented-Out Code:**
-    *   **Observation:** Line 6 (`// use anyhow::Ok;`) is commented out.
-    *   **Suggestion:** Remove commented-out code unless it serves as a specific, temporary note. Version control (like Git) is the best place to keep track of historical code.
+**Observation:** The current code reads up to 1024 bytes, which is fine for simple GET requests without bodies. However, it doesn't explicitly handle requests with bodies (like POST) or requests larger than the buffer.
 
-## 🚀 Potential Next Steps (Challenges)
+**Suggestion:** For handling requests with bodies, you'd need to parse the `Content-Length` header (if present) and read exactly that many bytes *after* the headers. For requests larger than the buffer, you might need to read in chunks. This is a more advanced topic but something to keep in mind as you expand the server.
 
-*   **Concurrency:** Handle multiple client connections simultaneously using threads or asynchronous programming (like Tokio or async-std).
-*   **More Robust Parsing:** Handle HTTP headers and different HTTP methods (POST, PUT, etc.). Consider using an HTTP parsing crate like `httparse`.
-*   **Modularity:** As the server grows, break down `handle_request` into smaller functions (e.g., `parse_request`, `route_request`, `build_response`).
+**Why:** Correctly handling request bodies and large requests is crucial for supporting methods like POST and PUT, and for general robustness. `BufReader` helps, but coordinating header parsing and body reading requires careful state management.
 
-Keep up the great work! Building network services is challenging, and you're off to a solid start. Experimenting with these suggestions will help make your Rust code even more robust and idiomatic. Happy coding!
+**Learning Resource:**
+
+*   Reading `TcpStream` data: [https://doc.rust-lang.org/std/net/struct.TcpStream.html#method.read](https://doc.rust-lang.org/std/net/struct.TcpStream.html#method.read)
+*   HTTP Message Format: [https://developer.mozilla.org/en-US/docs/Web/HTTP/Messages](https://developer.mozilla.org/en-US/docs/Web/HTTP/Messages)
+
+## 5. Use of `String::from_utf8_lossy`
+
+**Observation:** You use `String::from_utf8_lossy` to convert the read bytes into a string.
+
+**Suggestion:** This is acceptable for simple cases, especially when dealing with text-based protocols like HTTP headers. However, be aware that it replaces invalid UTF-8 sequences with the replacement character (``). If you needed to handle binary data or guarantee exact byte representation, you would work directly with the `&[u8]` slice or use `String::from_utf8` which returns a `Result`.
+
+**Why:** `from_utf8_lossy` prioritizes getting *a* string, potentially losing information if the input isn't valid UTF-8. For HTTP headers, this is usually fine, but it's important to understand the trade-off.
+
+**Learning Resource:**
+
+*   `String::from_utf8_lossy`: [https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy](https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy)
+*   `String::from_utf8`: [https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8](https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8)
+
+---
+
+Keep up the great work! Building network services like this is a fantastic way to learn Rust. Don't hesitate to experiment with these suggestions and see how they impact your code. Let me know if you have any questions about these points!
