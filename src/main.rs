@@ -111,7 +111,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
             }
         },
         (Some("GET"), Some(route)) if route.starts_with("/file/") => {
-            if let Some(file_name) = route.strip_prefix("/file/") {
+            if let Some(file_name) = route.strip_prefix("/file") {
                 let env_args: Vec<String> = env::args().collect();
                 let mut dir = env_args[2].clone();
                 dir.push_str(&file_name);
