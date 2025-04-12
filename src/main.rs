@@ -112,16 +112,21 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
         },
         (Some("GET"), Some(route)) if route.starts_with("/file/") => {
             if let Some(filepath) = route.strip_prefix("/file/") {
-                if let Ok(mut file) = File::open(filepath) {
-                    let mut content: Vec<u8> = Vec::new();
-                    file.read_to_end(&mut content)?;
-                    format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n{}", content.len(), String::from_utf8_lossy(&content))
+                match File::open(filepath) {
+                    Ok(mut file) => {
+                        let mut content: Vec<u8> = Vec::new();
+                        file.read_to_end(&mut content)?;
+                        let header = format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n", content.len());
+                        let mut response_bytes = header.into_bytes();
+                        response_bytes.extend_from_slice(&content);
+                        if let Err(e) = stream.write_all(&response_bytes) {
+                            eprintln!("Failed to write response: {}", e);
+                        }
+                        return Ok(());
+                    },
+                    Err(_) => NOT_FOUND_RESPONSE.to_string(),
                 }
-                else{
-                    NOT_FOUND_RESPONSE.to_string()
-                }
-            }
-            else{
+            } else {
                 NOT_FOUND_RESPONSE.to_string()
             }
         },
