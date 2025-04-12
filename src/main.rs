@@ -112,6 +112,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
         },
         (Some("GET"), Some(route)) if route.starts_with("/file/") => {
             if let Some(filepath) = route.strip_prefix("/file/") {
+                println!("{}",filepath);
                 match File::open(filepath) {
                     Ok(mut file) => {
                         let mut content: Vec<u8> = Vec::new();
@@ -121,7 +122,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
                         response_bytes.extend_from_slice(&content);
                         if let Err(e) = stream.write_all(&response_bytes) {
                             eprintln!("Failed to write response: {}", e);
-                            
+
                         }
                         return Ok(());
                     },
