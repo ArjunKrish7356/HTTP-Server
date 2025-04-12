@@ -86,7 +86,6 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
     let response = match (headers.get("Type").map(|s| s.as_str()), headers.get("Route").map(|s| s.as_str())) {
         (Some("GET"), Some("/")) => OK_RESPONSE.to_string(),
         (Some("GET"), Some(route)) if route.starts_with("/echo/") => {
-            // Using strip_prefix for cleaner path extraction
             if let Some(param) = route.strip_prefix("/echo/") {
                 format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
@@ -94,7 +93,6 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
                     param
                 )
             } else {
-                // Should ideally not happen if starts_with passed, but good practice
                 BAD_REQUEST_RESPONSE.to_string()
             }
         },
@@ -106,35 +104,29 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
                     user_agent
                 )
             } else {
-                // Maybe return a different error if User-Agent header is expected but missing?
                 BAD_REQUEST_RESPONSE.to_string()
             }
         },
-        (Some("GET"), Some(route)) if route.starts_with("/file/") => {
-            if let Some(file_name) = route.strip_prefix("/file") {
+        (Some("GET"), Some(route)) if route.starts_with("/files/") => {
+            if let Some(file_name) = route.strip_prefix("/files/") {
                 let env_args: Vec<String> = env::args().collect();
                 let mut dir = env_args[2].clone();
-                dir.push_str(&file_name);
-                match File::open(dir) {
-                    Ok(mut file) => {
-                        let mut content: Vec<u8> = Vec::new();
-                        file.read_to_end(&mut content)?;
-                        let header = format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n", content.len());
-                        let mut response_bytes = header.into_bytes();
-                        response_bytes.extend_from_slice(&content);
-                        if let Err(e) = stream.write_all(&response_bytes) {
-                            eprintln!("Failed to write response: {}", e);
-
-                        }
-                        return Ok(());
+                dir.push_str(file_name);
+                match std::fs::read(&dir) {
+                    Ok(content) => {
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n{}",
+                            content.len(),
+                            String::from_utf8_lossy(&content)
+                        )
                     },
-                    Err(_) => NOT_FOUND_RESPONSE.to_string(),
+                    Err(_) => NOT_FOUND_RESPONSE.to_string()
                 }
             } else {
                 NOT_FOUND_RESPONSE.to_string()
             }
         },
-        _ => NOT_FOUND_RESPONSE.to_string(), // Default case for any other method/route
+        _ => NOT_FOUND_RESPONSE.to_string(), // default response for any other method/route
     };
     println!("{}",response);
 
