@@ -121,6 +121,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
                         response_bytes.extend_from_slice(&content);
                         if let Err(e) = stream.write_all(&response_bytes) {
                             eprintln!("Failed to write response: {}", e);
+                            
                         }
                         return Ok(());
                     },
