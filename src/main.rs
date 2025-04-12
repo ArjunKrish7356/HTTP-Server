@@ -2,6 +2,8 @@
 use std::net::{TcpListener, TcpStream};
 use std::{collections::HashMap, io::{BufReader, Read, Write}};
 use rayon::ThreadPoolBuilder;
+use std::fs::File;
+
 
 const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
 const NOT_FOUND_RESPONSE: &str = "HTTP/1.1 404 Not Found\r\n\r\n";
@@ -79,6 +81,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
 
     let request = String::from_utf8_lossy(&buf[..bytes_read]);
     let headers = extract_headers(&request);
+    println!("{:#?}",headers);
 
     let response = match (headers.get("Type").map(|s| s.as_str()), headers.get("Route").map(|s| s.as_str())) {
         (Some("GET"), Some("/")) => OK_RESPONSE.to_string(),
@@ -94,7 +97,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
                 // Should ideally not happen if starts_with passed, but good practice
                 BAD_REQUEST_RESPONSE.to_string()
             }
-        }
+        },
         (Some("GET"), Some("/user-agent")) => {
             if let Some(user_agent) = headers.get("User-Agent") {
                 format!(
@@ -106,7 +109,22 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
                 // Maybe return a different error if User-Agent header is expected but missing?
                 BAD_REQUEST_RESPONSE.to_string()
             }
-        }
+        },
+        (Some("GET"), Some(route)) if route.starts_with("/file/") => {
+            if let Some(filepath) = route.strip_prefix("/file/") {
+                if let Ok(mut file) = File::open(filepath) {
+                    let mut content: Vec<u8> = Vec::new();
+                    file.read_to_end(&mut content)?;
+                    format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n{}", content.len(), String::from_utf8_lossy(&content))
+                }
+                else{
+                    NOT_FOUND_RESPONSE.to_string()
+                }
+            }
+            else{
+                NOT_FOUND_RESPONSE.to_string()
+            }
+        },
         _ => NOT_FOUND_RESPONSE.to_string(), // Default case for any other method/route
     };
     println!("{}",response);
