@@ -2,7 +2,7 @@
 use std::net::{TcpListener, TcpStream};
 use std::{collections::HashMap, io::{BufReader, Read, Write}};
 use rayon::ThreadPoolBuilder;
-use std::fs::File;
+use std::{fs::File, env};
 
 
 const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
@@ -111,9 +111,11 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
             }
         },
         (Some("GET"), Some(route)) if route.starts_with("/file/") => {
-            if let Some(filepath) = route.strip_prefix("/file/") {
-                println!("{}",filepath);
-                match File::open(filepath) {
+            if let Some(file_name) = route.strip_prefix("/file/") {
+                let env_args: Vec<String> = env::args().collect();
+                let mut dir = env_args[2].clone();
+                dir.push_str(&file_name);
+                match File::open(dir) {
                     Ok(mut file) => {
                         let mut content: Vec<u8> = Vec::new();
                         file.read_to_end(&mut content)?;
