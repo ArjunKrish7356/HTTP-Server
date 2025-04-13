@@ -131,18 +131,42 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
             }
         },
         (Some("POST"), Some(route)) if route.starts_with("/files/") => {
+            // Strip the "/files/" prefix to get the filename.
+            let filename = route.strip_prefix("/files/").unwrap().to_string();
+
+            // Get the directory name from the command-line arguments.
             let env_args: Vec<String> = env::args().collect();
-            let dir_name = env_args[2].clone();
-            let filename = route.strip_prefix("/files/").unwrap();
-            let file_path = Path::new(&dir_name).join(format!("{}.txt", filename));
-            let mut file = File::create(file_path)?;
-            if let Some(content) = headers.get("Content") {
-                let _ = file.write_all(content.as_bytes());
-                RESOURCE_CREATED.to_string()
-            } else{
+            let dir_name = env_args.get(2).expect("Directory argument missing");
+            let file_path = Path::new(dir_name).join(&filename);
+
+            // The HTTP request is in `request` (read from the stream).
+            // A real HTTP parser would separate headers from body.
+            // Here we assume the body comes after "\r\n\r\n".
+            let parts: Vec<&str> = request.split("\r\n\r\n").collect();
+            if parts.len() > 1 {
+            // The content after the headers is the body.
+            let body = parts[1];
+
+            // Create the file and write out the body.
+            match File::create(&file_path) {
+                Ok(mut file) => {
+                if let Err(e) = file.write_all(body.as_bytes()) {
+                    eprintln!("Failed to write to file {}: {}", file_path.display(), e);
+                    NOT_FOUND_RESPONSE.to_string()
+                } else {
+                    RESOURCE_CREATED.to_string()
+                }
+                },
+                Err(e) => {
+                eprintln!("Failed to create file {}: {}", file_path.display(), e);
                 NOT_FOUND_RESPONSE.to_string()
+                }
             }
-            },
+            } else {
+            eprintln!("Request body not found in the POST request");
+            NOT_FOUND_RESPONSE.to_string()
+            }
+        },
         _ => NOT_FOUND_RESPONSE.to_string(), // default response for any other method/route
     };
     println!("{}",response);
