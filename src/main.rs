@@ -34,10 +34,7 @@ fn extract_headers(request: &str) -> HashMap<String,String> {
                 value.trim().to_string(), // Trim whitespace
             );
        } else if !split.is_empty() { // Ignore empty lines but log others
-           headers.insert(
-            "Content".to_string(),
-             split.to_string()
-            );
+           eprintln!("Malformed header encountered: {}", split);
        }
     }
     headers
@@ -131,40 +128,33 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
             }
         },
         (Some("POST"), Some(route)) if route.starts_with("/files/") => {
-            // Strip the "/files/" prefix to get the filename.
-            let filename = route.strip_prefix("/files/").unwrap().to_string();
-
-            // Get the directory name from the command-line arguments.
             let env_args: Vec<String> = env::args().collect();
-            let dir_name = env_args.get(2).expect("Directory argument missing");
-            let file_path = Path::new(dir_name).join(&filename);
-
-            // The HTTP request is in `request` (read from the stream).
-            // A real HTTP parser would separate headers from body.
-            // Here we assume the body comes after "\r\n\r\n".
+            let dir_name = &env_args[2];
+            let filename = route.strip_prefix("/files/").unwrap();
+            let file_path = Path::new(dir_name).join(filename);
+            
+            // Properly split the request into headers and body using \r\n\r\n separator
             let parts: Vec<&str> = request.split("\r\n\r\n").collect();
             if parts.len() > 1 {
-            // The content after the headers is the body.
-            let body = parts[1];
-
-            // Create the file and write out the body.
-            match File::create(&file_path) {
-                Ok(mut file) => {
-                if let Err(e) = file.write_all(body.as_bytes()) {
-                    eprintln!("Failed to write to file {}: {}", file_path.display(), e);
-                    NOT_FOUND_RESPONSE.to_string()
-                } else {
-                    RESOURCE_CREATED.to_string()
+                let body = parts[1];
+                
+                match File::create(&file_path) {
+                    Ok(mut file) => {
+                        if let Err(e) = file.write_all(body.as_bytes()) {
+                            eprintln!("Failed to write to file {}: {}", file_path.display(), e);
+                            NOT_FOUND_RESPONSE.to_string()
+                        } else {
+                            RESOURCE_CREATED.to_string()
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to create file {}: {}", file_path.display(), e);
+                        NOT_FOUND_RESPONSE.to_string()
+                    }
                 }
-                },
-                Err(e) => {
-                eprintln!("Failed to create file {}: {}", file_path.display(), e);
-                NOT_FOUND_RESPONSE.to_string()
-                }
-            }
             } else {
-            eprintln!("Request body not found in the POST request");
-            NOT_FOUND_RESPONSE.to_string()
+                eprintln!("Request body not found in the POST request");
+                NOT_FOUND_RESPONSE.to_string()
             }
         },
         _ => NOT_FOUND_RESPONSE.to_string(), // default response for any other method/route
