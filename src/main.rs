@@ -9,6 +9,7 @@ const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
 const NOT_FOUND_RESPONSE: &str = "HTTP/1.1 404 Not Found\r\n\r\n";
 const BAD_REQUEST_RESPONSE: &str = "HTTP/1.1 400 Bad Request\r\n\r\n";
 const BIND_ADDRESS: &str = "127.0.0.1:4221";
+const RESOURCE_CREATED: &str = "HTTP/1.1 201 Created\r\n\r\n";
 
 fn extract_headers(request: &str) -> HashMap<String,String> {
     let mut headers = HashMap::new();
@@ -33,7 +34,10 @@ fn extract_headers(request: &str) -> HashMap<String,String> {
                 value.trim().to_string(), // Trim whitespace
             );
        } else if !split.is_empty() { // Ignore empty lines but log others
-           eprintln!("Malformed header line: {}", split);
+           headers.insert(
+            "Content".to_string(),
+             split.to_string()
+            );
        }
     }
     headers
@@ -123,6 +127,21 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
                     Err(_) => NOT_FOUND_RESPONSE.to_string()
                 }
             } else {
+                NOT_FOUND_RESPONSE.to_string()
+            }
+        },
+        (Some("POST"), Some(route)) if route.starts_with("/files/") => {
+            if let Some(filename) = route.strip_prefix("/files/") {
+                let mut file = File::create(format!("{}.txt",filename))?;
+                if let Some(content) = headers.get("Content") {
+                    let _ = file.write_all(content.as_bytes());
+                    RESOURCE_CREATED.to_string()
+                }
+                else{
+                    NOT_FOUND_RESPONSE.to_string()
+                }
+            }
+            else{
                 NOT_FOUND_RESPONSE.to_string()
             }
         },
