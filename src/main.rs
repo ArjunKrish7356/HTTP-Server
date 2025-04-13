@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use std::net::{TcpListener, TcpStream};
-use std::{collections::HashMap, io::{BufReader, Read, Write}};
+use std::{collections::HashMap, io::{BufReader, Read, Write}, path::Path};
 use rayon::ThreadPoolBuilder;
 use std::{fs::File, env};
 
@@ -131,20 +131,18 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
             }
         },
         (Some("POST"), Some(route)) if route.starts_with("/files/") => {
-            if let Some(filename) = route.strip_prefix("/files/") {
-                let mut file = File::create(format!("{}.txt",filename))?;
-                if let Some(content) = headers.get("Content") {
-                    let _ = file.write_all(content.as_bytes());
-                    RESOURCE_CREATED.to_string()
-                }
-                else{
-                    NOT_FOUND_RESPONSE.to_string()
-                }
-            }
-            else{
+            let env_args: Vec<String> = env::args().collect();
+            let dir_name = env_args[2].clone();
+            let filename = route.strip_prefix("/files/").unwrap();
+            let file_path = Path::new(&dir_name).join(format!("{}.txt", filename));
+            let mut file = File::create(file_path)?;
+            if let Some(content) = headers.get("Content") {
+                let _ = file.write_all(content.as_bytes());
+                RESOURCE_CREATED.to_string()
+            } else{
                 NOT_FOUND_RESPONSE.to_string()
             }
-        },
+            },
         _ => NOT_FOUND_RESPONSE.to_string(), // default response for any other method/route
     };
     println!("{}",response);
