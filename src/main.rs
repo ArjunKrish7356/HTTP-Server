@@ -180,5 +180,5 @@ fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<Vec<u8>,std::io::
     };
     println!("{}",response);
 
-    Ok(response.as_bytes())
+    Ok(response.as_bytes().to_vec())
 }
