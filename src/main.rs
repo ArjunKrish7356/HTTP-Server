@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use std::net::{TcpListener, TcpStream};
-use std::{collections::HashMap, io::{BufReader, Read, Write}, path::Path};
-use rayon::ThreadPoolBuilder;
+use std::{collections::HashMap, io::{BufReader, Read, Write}, path::Path, time::Duration};
+use rayon::{vec, ThreadPoolBuilder};
 use std::{fs::File, env};
 
 
@@ -45,13 +45,16 @@ fn main() -> Result<(),std::io::Error> {
     println!("Logs from your program will appear here!");
 
     let listener = TcpListener::bind(BIND_ADDRESS)?;
-    let pool = ThreadPoolBuilder::new().num_threads(8).build().unwrap();
+    let pool = match ThreadPoolBuilder::new().num_threads(8).build() {
+        Ok(answer) => answer,
+        Err(e) => panic!("Failed to build thread pool: {:?}", e)
+    };
     
     for stream in listener.incoming() {
          match stream {
              Ok(stream) => {
                 pool.spawn(move || {
-                    if let Err(e) = handle_request(stream) {
+                    if let Err(e) = handle_client(stream) {
                         eprintln!("Error handling connection: {}", e);
                     }
                 });
@@ -64,14 +67,30 @@ fn main() -> Result<(),std::io::Error> {
     Ok(())
 }
 
-fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
-    let mut reader = BufReader::new(&stream);
+fn handle_client(mut stream: TcpStream) -> Result<(),std::io::Error>{
+    loop{
+        let buf_reader = BufReader::new(&stream);
+        stream
+            .set_read_timeout(Some(Duration::new(0, 100000000)))
+            .expect("Timeout handled");
+
+        if let Ok(response) = handle_request(buf_reader) {
+            if let Err(e) = stream.write_all(&response) {
+            eprintln!("Failed to send response: {}", e);
+            }
+        } else {
+            eprintln!("Error processing request");
+        }
+    }
+}
+
+fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<Vec<u8>,std::io::Error>{
     let mut buf: [u8; 1024] = [0; 1024];
 
-    let bytes_read = match reader.read(&mut buf){
+    let _bytes_read = match reader.read(&mut buf){
         Ok(0) => {
             println!("Client Disconnectd");
-            return Ok(());
+            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Client disconnected"));
         },
         Ok(n) => n,
         Err(e) => {
@@ -80,7 +99,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
         }
     };
 
-    let request = String::from_utf8_lossy(&buf[..bytes_read]);
+    let request = String::from_utf8_lossy(&buf);
     let headers = extract_headers(&request);
     println!("{:#?}",headers);
 
@@ -130,7 +149,7 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
         (Some("POST"), Some(route)) if route.starts_with("/files/") => {
             let env_args: Vec<String> = env::args().collect();
             let dir_name = &env_args[2];
-            let filename = route.strip_prefix("/files/").unwrap();
+            let filename = route.strip_prefix("/files/").expect("Error while stripping file");
             let file_path = Path::new(dir_name).join(filename);
             
             // Properly split the request into headers and body using \r\n\r\n separator
@@ -161,9 +180,5 @@ fn handle_request(mut stream: TcpStream) -> Result<(),std::io::Error>{
     };
     println!("{}",response);
 
-    if let Err(e) = stream.write_all(response.as_bytes()) {
-            eprintln!("Failed to write response: {}", e);
-    }
-
-    Ok(())
+    Ok(response.as_bytes().to_vec())
 }
