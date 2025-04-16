@@ -68,34 +68,38 @@ fn main() -> Result<(),std::io::Error> {
 }
 
 fn handle_client(mut stream: TcpStream) -> Result<(),std::io::Error>{
-    loop {
+    loop{
         let buf_reader = BufReader::new(&stream);
         stream
             .set_read_timeout(Some(Duration::new(0, 100000000)))
             .expect("Timeout handled");
-        
-        // If this errors, it will return from the function
-        let response = handle_request(buf_reader)?;
-        stream.write_all(&response)?;
+
+        if let Ok(response) = handle_request(buf_reader) {
+            if let Err(e) = stream.write_all(&response) {
+            eprintln!("Failed to send response: {}", e);
+            }
+        } else {
+            eprintln!("Error processing request");
+        }
     }
 }
 
 fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<Vec<u8>,std::io::Error>{
     let mut buf: [u8; 1024] = [0; 1024];
 
-    let _bytes_read = match reader.read(&mut buf){
+    let bytes_read = match reader.read(&mut buf) {
         Ok(0) => {
             println!("Client Disconnectd");
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Client disconnected"));
+            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Disconnected"));
         },
         Ok(n) => n,
         Err(e) => {
             eprintln!("Failed to read from stream: {}", e);
-           return Err(e);
+            return Err(e);
         }
     };
 
-    let request = String::from_utf8_lossy(&buf);
+    let request = String::from_utf8_lossy(&buf[..bytes_read]);
     let headers = extract_headers(&request);
     println!("{:#?}",headers);
 
@@ -176,5 +180,5 @@ fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<Vec<u8>,std::io::
     };
     println!("{}",response);
 
-    Ok(response.as_bytes().to_vec())
+    Ok(response.as_bytes())
 }
