@@ -68,19 +68,15 @@ fn main() -> Result<(),std::io::Error> {
 }
 
 fn handle_client(mut stream: TcpStream) -> Result<(),std::io::Error>{
-    loop{
+    loop {
         let buf_reader = BufReader::new(&stream);
         stream
             .set_read_timeout(Some(Duration::new(0, 100000000)))
             .expect("Timeout handled");
-
-        if let Ok(response) = handle_request(buf_reader) {
-            if let Err(e) = stream.write_all(&response) {
-            eprintln!("Failed to send response: {}", e);
-            }
-        } else {
-            eprintln!("Error processing request");
-        }
+        
+        // If this errors, it will return from the function
+        let response = handle_request(buf_reader)?;
+        stream.write_all(&response)?;
     }
 }
 
