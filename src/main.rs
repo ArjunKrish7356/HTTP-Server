@@ -25,7 +25,6 @@ fn extract_headers(request: &str) -> HashMap<String,String> {
             eprintln!("Malformed status line: {}", status);
         }
     }
-    
 
     for split in splitted_request {
         if let Some((key, value)) = split.split_once(':') {
@@ -69,22 +68,30 @@ fn main() -> Result<(),std::io::Error> {
 
 fn handle_client(mut stream: TcpStream) -> Result<(),std::io::Error>{
     loop{
+        let mut close = false;
         let buf_reader = BufReader::new(&stream);
         stream
             .set_read_timeout(Some(Duration::new(0, 100000000)))
             .expect("Timeout handled");
 
         if let Ok(response) = handle_request(buf_reader) {
-            if let Err(e) = stream.write_all(&response) {
+            if response.contains("Connection: close") {
+                close = true;
+            }
+            if let Err(e) = stream.write_all(&response.as_bytes()) {
             eprintln!("Failed to send response: {}", e);
             }
         } else {
             eprintln!("Error processing request");
         }
+        if close{
+            break;
+        }
     }
+    Ok(())
 }
 
-fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<Vec<u8>,std::io::Error>{
+fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<String,std::io::Error>{
     let mut buf: [u8; 1024] = [0; 1024];
 
     let bytes_read = match reader.read(&mut buf) {
@@ -104,7 +111,20 @@ fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<Vec<u8>,std::io::
     println!("{:#?}",headers);
 
     let response = match (headers.get("Type").map(|s| s.as_str()), headers.get("Route").map(|s| s.as_str())) {
-        (Some("GET"), Some("/")) => OK_RESPONSE.to_string(),
+        (Some("GET"), Some("/")) => {
+            if let Some(connection) = headers.get("Connection") {
+                if connection == "close"{
+                    "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_string()
+                    
+                }
+                else{
+                    OK_RESPONSE.to_string()
+                }
+            }
+            else{ 
+                OK_RESPONSE.to_string()
+            }
+        },
         (Some("GET"), Some(route)) if route.starts_with("/echo/") => {
             if let Some(param) = route.strip_prefix("/echo/") {
                 format!(
@@ -180,5 +200,5 @@ fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<Vec<u8>,std::io::
     };
     println!("{}",response);
 
-    Ok(response.as_bytes().to_vec())
+    Ok(response)
 }
