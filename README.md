@@ -1,38 +1,31 @@
-[![progress-banner](https://backend.codecrafters.io/progress/http-server/3f3e0a14-badf-4d07-8447-731e16084dbc)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# codecrafters-http-server
 
-This is a starting point for Rust solutions to the
-["Build Your Own HTTP server" Challenge](https://app.codecrafters.io/courses/http-server/overview).
+A basic HTTP server implemented in Rust for the Codecrafters platform.
 
-[HTTP](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol) is the
-protocol that powers the web. In this challenge, you'll build a HTTP/1.1 server
-that is capable of serving multiple clients.
+## Usage
 
-Along the way you'll learn about TCP servers,
-[HTTP request syntax](https://www.w3.org/Protocols/rfc2616/rfc2616-sec5.html),
-and more.
+1.  **Build the project:**
+    ```bash
+    cargo build --release
+    ```
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+2.  **Run the server:**
+    ```bash
+    ./target/release/codecrafters-http-server <directory_to_serve>
+    ```
+    Replace `<directory_to_serve>` with the directory you want to serve files from.
 
-# Passing the first stage
+3.  **Access the server:**
+    Open your browser or use `curl` to access the server at `http://127.0.0.1:4221`.
 
-The entry point for your HTTP server implementation is in `src/main.rs`. Study
-and uncomment the relevant code, and push your changes to pass the first stage:
+## Endpoints
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
-```
+*   `/`: Returns a 200 OK response.
+*   `/echo/<message>`: Echoes back the message in the response body.
+*   `/user-agent`: Returns the User-Agent header from the request.
+*   `/files/<filename>`: Serves files from the specified directory.
+*   `POST /files/<filename>`: Creates a new file with the request body in the specified directory.
 
-Time to move on to the next stage!
+## License
 
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cargo (1.85)` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `src/main.rs`. This command compiles your Rust project, so it might be slow
-   the first time you run it. Subsequent runs will be fast.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+This project is licensed under the MIT License.
