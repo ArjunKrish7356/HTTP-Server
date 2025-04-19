@@ -69,20 +69,51 @@ fn main() -> Result<(),std::io::Error> {
 fn handle_client(mut stream: TcpStream) -> Result<(),std::io::Error>{
     loop{
         let mut close = false;
-        let buf_reader = BufReader::new(&stream);
+        let mut reader = BufReader::new(&stream);
         stream
             .set_read_timeout(Some(Duration::new(0, 100000000)))
             .expect("Timeout handled");
 
-        if let Ok(response) = handle_request(buf_reader) {
-            if response.contains("Connection: close") {
-                close = true;
+        let mut buf: [u8; 1024] = [0; 1024];
+
+        let bytes_read = match reader.read(&mut buf) {
+            Ok(0) => {
+                println!("Client Disconnectd");
+                return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Disconnected"));
+            },
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("Failed to read from stream: {}", e);
+                return Err(e);
             }
-            if let Err(e) = stream.write_all(&response.as_bytes()) {
-            eprintln!("Failed to send response: {}", e);
+        };
+    
+        let request = String::from_utf8_lossy(&buf[..bytes_read]);
+
+        if request.contains("Connection: close"){
+            close = true;
+        }
+
+        match handle_request(request.into_owned()) {
+            Ok(mut response) => {
+                if close {
+                    // split off the header block vs. the body
+                    let mut parts = response.splitn(2, "\r\n\r\n");
+                    let head = parts.next().unwrap_or("");
+                    let body = parts.next().unwrap_or("");
+                    // re‑assemble with Connection: close
+                    response = format!(
+                        "{}\r\nConnection: close\r\n\r\n{}",
+                        head, body
+                    );
+                }
+                // write the (possibly modified) response back to the client
+                stream.write_all(response.as_bytes())?;
+            },
+            Err(e) => {
+                eprintln!("Error in handle_request: {}", e);
+                break;
             }
-        } else {
-            eprintln!("Error processing request");
         }
         if close{
             break;
@@ -91,39 +122,13 @@ fn handle_client(mut stream: TcpStream) -> Result<(),std::io::Error>{
     Ok(())
 }
 
-fn handle_request(mut reader: BufReader<&TcpStream>) -> Result<String,std::io::Error>{
-    let mut buf: [u8; 1024] = [0; 1024];
-
-    let bytes_read = match reader.read(&mut buf) {
-        Ok(0) => {
-            println!("Client Disconnectd");
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Disconnected"));
-        },
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("Failed to read from stream: {}", e);
-            return Err(e);
-        }
-    };
-
-    let request = String::from_utf8_lossy(&buf[..bytes_read]);
+fn handle_request(request: String) -> Result<String,std::io::Error>{
     let headers = extract_headers(&request);
     println!("{:#?}",headers);
 
     let response = match (headers.get("Type").map(|s| s.as_str()), headers.get("Route").map(|s| s.as_str())) {
         (Some("GET"), Some("/")) => {
-            if let Some(connection) = headers.get("Connection") {
-                if connection == "close"{
-                    "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_string()
-                    
-                }
-                else{
-                    OK_RESPONSE.to_string()
-                }
-            }
-            else{ 
-                OK_RESPONSE.to_string()
-            }
+            OK_RESPONSE.to_string()
         },
         (Some("GET"), Some(route)) if route.starts_with("/echo/") => {
             if let Some(param) = route.strip_prefix("/echo/") {
