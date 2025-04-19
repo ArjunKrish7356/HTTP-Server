@@ -1,6 +1,6 @@
-# codecrafters-http-server
+# http-server
 
-A basic HTTP server implemented in Rust for the Codecrafters platform.
+A basic HTTP server implemented in Rust.
 
 ## Usage
 
