@@ -11,9 +11,8 @@ A basic HTTP server implemented in Rust.
 
 2.  **Run the server:**
     ```bash
-    ./target/release/codecrafters-http-server <directory_to_serve>
+    cargo run
     ```
-    Replace `<directory_to_serve>` with the directory you want to serve files from.
 
 3.  **Access the server:**
     Open your browser or use `curl` to access the server at `http://127.0.0.1:4221`.
